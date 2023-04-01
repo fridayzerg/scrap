@@ -1,15 +1,19 @@
 use quartz;
-use std::{io, ops, mem};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex, TryLockError};
+use std::{io, mem, ops};
 
 pub struct Capturer {
     inner: quartz::Capturer,
-    frame: Arc<Mutex<Option<quartz::Frame>>>
+    frame: Arc<Mutex<Option<quartz::Frame>>>,
 }
 
 impl Capturer {
     pub fn new(display: Display) -> io::Result<Capturer> {
+        return Self::new_with_config(display, Default::default());
+    }
+
+    pub fn new_with_config(display: Display, cnf: quartz::Config) -> io::Result<Capturer> {
         let frame = Arc::new(Mutex::new(None));
 
         let f = frame.clone();
@@ -18,13 +22,14 @@ impl Capturer {
             display.width(),
             display.height(),
             quartz::PixelFormat::Argb8888,
-            Default::default(),
+            cnf,
             move |inner| {
                 if let Ok(mut f) = f.lock() {
                     *f = Some(inner);
                 }
-            }
-        ).map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+            },
+        )
+        .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
 
         Ok(Capturer { inner, frame })
     }
@@ -44,27 +49,20 @@ impl Capturer {
                 mem::swap(&mut frame, &mut handle);
 
                 match frame {
-                    Some(frame) =>
-                        Ok(Frame(frame, PhantomData)),
+                    Some(frame) => Ok(Frame(frame, PhantomData)),
 
-                    None =>
-                        Err(io::ErrorKind::WouldBlock.into())
+                    None => Err(io::ErrorKind::WouldBlock.into()),
                 }
             }
 
-            Err(TryLockError::WouldBlock) =>
-                Err(io::ErrorKind::WouldBlock.into()),
+            Err(TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
 
-            Err(TryLockError::Poisoned(..)) =>
-                Err(io::ErrorKind::Other.into())
+            Err(TryLockError::Poisoned(..)) => Err(io::ErrorKind::Other.into()),
         }
     }
 }
 
-pub struct Frame<'a>(
-    quartz::Frame,
-    PhantomData<&'a [u8]>
-);
+pub struct Frame<'a>(quartz::Frame, PhantomData<&'a [u8]>);
 
 impl<'a> ops::Deref for Frame<'a> {
     type Target = [u8];
@@ -81,13 +79,15 @@ impl Display {
     }
 
     pub fn all() -> io::Result<Vec<Display>> {
-        Ok(
-            quartz::Display::online()
-                .map_err(|_| io::Error::from(io::ErrorKind::Other))?
-                .into_iter()
-                .map(Display)
-                .collect()
-        )
+        Ok(quartz::Display::online()
+            .map_err(|_| io::Error::from(io::ErrorKind::Other))?
+            .into_iter()
+            .map(Display)
+            .collect())
+    }
+
+    pub fn get_0(&self) -> quartz::Display {
+        return self.0.clone();
     }
 
     pub fn width(&self) -> usize {
